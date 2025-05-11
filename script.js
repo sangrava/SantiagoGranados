@@ -15,27 +15,27 @@ const totalCarrito = document.getElementById("total");
 const cantidadCarrito = document.getElementById("cantidad-carrito");
 const contenedorPayPal = document.getElementById("paypal-button-container");
 
-function filtrarPorCategoria() {
-  const seleccion = document.getElementById("categoria").value;
-  const productosFiltrados = seleccion === "todos" 
-    ? productos 
-    : productos.filter(p => p.categoria === seleccion);
-  mostrarProductos(productosFiltrados);
-}
-
 function mostrarProductos(lista) {
   contenedorProductos.innerHTML = "";
-  lista.forEach(prod => {
-    const div = document.createElement("div");
-    div.className = "producto";
-    div.innerHTML = `
-      <img src="${prod.imagen}" alt="${prod.nombre}">
-      <h3>${prod.nombre}</h3>
-      <p>Precio: $${prod.precio.toFixed(2)}</p>
-      <button onclick="agregarAlCarrito(${prod.id})">Agregar al carrito</button>
-    `;
-    contenedorProductos.appendChild(div);
-  });
+  lista.length === 0
+    ? contenedorProductos.innerHTML = "<p>No hay productos para esta categoría.</p>"
+    : lista.forEach(prod => {
+        const div = document.createElement("div");
+        div.className = "producto";
+        div.innerHTML = `
+          <img src="${prod.imagen}" alt="${prod.nombre}">
+          <h3>${prod.nombre}</h3>
+          <p>Precio: $${prod.precio.toFixed(2)}</p>
+          <button onclick="agregarAlCarrito(${prod.id})">Agregar al carrito</button>
+        `;
+        contenedorProductos.appendChild(div);
+      });
+}
+
+function filtrarPorCategoria() {
+  const categoria = document.getElementById("categoria").value;
+  const filtrados = categoria === "todos" ? productos : productos.filter(p => p.categoria === categoria);
+  mostrarProductos(filtrados);
 }
 
 function agregarAlCarrito(id) {
@@ -52,6 +52,29 @@ function agregarAlCarrito(id) {
   actualizarCarrito();
 }
 
+function eliminarDelCarrito(id) {
+  if (!carrito.has(id)) return;
+  const item = carrito.get(id);
+  item.cantidad > 1 ? item.cantidad-- : carrito.delete(id);
+  guardarCarrito();
+  actualizarCarrito();
+}
+
+function vaciarCarrito() {
+  if (carrito.size === 0) return;
+  if (confirm("¿Deseas vaciar el carrito?")) {
+    carrito.clear();
+    guardarCarrito();
+    actualizarCarrito();
+  }
+}
+
+function finalizarCompra() {
+  if (carrito.size === 0) return alert("Tu carrito está vacío.");
+  alert("¡Gracias por tu compra! Procesando pedido...");
+  vaciarCarrito();
+}
+
 function actualizarCarrito() {
   listaCarrito.innerHTML = "";
   let total = 0;
@@ -59,10 +82,8 @@ function actualizarCarrito() {
 
   carrito.forEach(item => {
     const li = document.createElement("li");
-    li.innerHTML = `
-      ${item.nombre} - $${item.precio.toFixed(2)} x ${item.cantidad}
-      <button onclick="eliminarDelCarrito(${item.id})">❌</button>
-    `;
+    li.innerHTML = `${item.nombre} - $${item.precio.toFixed(2)} x ${item.cantidad}
+    <button onclick="eliminarDelCarrito(${item.id})">❌</button>`;
     listaCarrito.appendChild(li);
     total += item.precio * item.cantidad;
     cantidad += item.cantidad;
@@ -71,39 +92,6 @@ function actualizarCarrito() {
   totalCarrito.textContent = total.toFixed(2);
   cantidadCarrito.textContent = cantidad;
   contenedorPayPal.style.display = carrito.size > 0 ? "block" : "none";
-}
-
-function eliminarDelCarrito(id) {
-  if (!carrito.has(id)) return;
-
-  const item = carrito.get(id);
-  if (item.cantidad > 1) {
-    item.cantidad--;
-  } else {
-    carrito.delete(id);
-  }
-
-  guardarCarrito();
-  actualizarCarrito();
-}
-
-function vaciarCarrito() {
-  if (carrito.size === 0) return;
-  if (confirm("¿Seguro que quieres vaciar el carrito?")) {
-    carrito.clear();
-    guardarCarrito();
-    actualizarCarrito();
-  }
-}
-
-function finalizarCompra() {
-  if (carrito.size === 0) {
-    alert("Tu carrito está vacío. Agrega productos antes de comprar.");
-    return;
-  }
-
-  alert("¡Gracias por tu compra! 🌞 Estamos procesando tu pedido.");
-  vaciarCarrito();
 }
 
 function guardarCarrito() {
@@ -122,28 +110,60 @@ function cargarCarrito() {
 if (window.paypal) {
   paypal.Buttons({
     createOrder: function (data, actions) {
-      const total = Array.from(carrito.values()).reduce(
-        (acc, item) => acc + item.precio * item.cantidad,
-        0
-      );
+      const total = Array.from(carrito.values()).reduce((acc, item) => acc + item.precio * item.cantidad, 0);
       return actions.order.create({
-        purchase_units: [{
-          amount: { value: total.toFixed(2) }
-        }]
+        purchase_units: [{ amount: { value: total.toFixed(2) } }]
       });
     },
     onApprove: function (data, actions) {
-      return actions.order.capture().then(function (details) {
+      return actions.order.capture().then(details => {
         alert(`¡Gracias ${details.payer.name.given_name}, tu pago fue exitoso!`);
         vaciarCarrito();
       });
     },
     onError: function (err) {
       console.error("Error con PayPal:", err);
-      alert("Hubo un problema con el pago. Intenta nuevamente.");
+      alert("Error con el pago. Inténtalo de nuevo.");
     }
   }).render("#paypal-button-container");
 }
+
+// Exportar PDF
+function exportarPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.text("Carrito de Compras", 10, 10);
+
+  let y = 20;
+  carrito.forEach(item => {
+    doc.text(`${item.nombre} - $${item.precio.toFixed(2)} x ${item.cantidad}`, 10, y);
+    y += 10;
+  });
+
+  doc.text(`Total: $${totalCarrito.textContent}`, 10, y + 10);
+  doc.save("carrito.pdf");
+}
+
+// Exportar Excel (CSV)
+function exportarExcel() {
+  let csv = "Nombre,Precio,Cantidad\n";
+  carrito.forEach(item => {
+    csv += `${item.nombre},${item.precio},${item.cantidad}\n`;
+  });
+  csv += `Total,${totalCarrito.textContent},\n`;
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "carrito.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// Inicializar
+filtrarPorCategoria();
+cargarCarrito();
 
 // Inicialización
 filtrarPorCategoria();
